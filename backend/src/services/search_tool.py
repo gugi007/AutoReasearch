@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 CHARS_PER_TOKEN = 4
 DEFAULT_MAX_RESULTS = 5
 SUPPORTED_BACKENDS = {
+    "academic",
+    "arxiv",
+    "google_scholar",
     "hybrid",
     "advanced",
     "tavily",

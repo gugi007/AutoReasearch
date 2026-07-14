@@ -4,6 +4,9 @@ const baseURL =
 export interface ResearchRequest {
   topic: string;
   search_api?: string;
+  venue_tiers?: string[];
+  papers_per_task?: number;
+  max_pdf_downloads?: number;
 }
 
 export interface ResearchStreamEvent {

@@ -27,9 +27,16 @@ def dispatch_search(
     """Execute configured search backend and normalise response payload."""
 
     search_api = get_config_value(config.search_api)
+    max_results = config.papers_per_task  # 使用配置的每任务文献篇数
 
     try:
-        if search_api == "google_scholar":
+        if search_api == "academic":
+            from services.academic_search import search_academic
+            raw_response = search_academic(query, max_results=max_results)
+        elif search_api == "arxiv":
+            from services.arxiv_search import search_arxiv
+            raw_response = search_arxiv(query, max_results=max_results)
+        elif search_api == "google_scholar":
             raw_response = _search_via_mcp(query)
         else:
             raw_response = _GLOBAL_SEARCH_TOOL.run(
@@ -38,7 +45,7 @@ def dispatch_search(
                     "backend": search_api,
                     "mode": "structured",
                     "fetch_full_page": config.fetch_full_page,
-                    "max_results": 5,
+                    "max_results": max_results,
                     "max_tokens_per_source": MAX_TOKENS_PER_SOURCE,
                     "loop_count": loop_count,
                 }
@@ -63,6 +70,30 @@ def dispatch_search(
     backend_label = str(payload.get("backend") or search_api)
     answer_text = payload.get("answer")
     results = payload.get("results", [])
+
+    # 应用 venue 分区筛选
+    if config.venue_tiers and results:
+        from services.venue_filter import VenueFilter
+        vf = VenueFilter()
+        filtered = vf.filter_results(results, config.venue_tiers)
+        if filtered:
+            payload["results"] = filtered
+            results = filtered
+            tier_labels = ", ".join(config.venue_tiers)
+            notices.append(f"已按 {tier_labels} 筛选，保留 {len(filtered)} 篇文献")
+            logger.info("Venue filter applied: %s, kept %d/%d results",
+                       tier_labels, len(filtered), len(results))
+        else:
+            tier_labels = ", ".join(config.venue_tiers)
+            notices.append(f"未找到符合 {tier_labels} 的文献，返回全部结果")
+            logger.info("Venue filter %s returned no matches, keeping all results", tier_labels)
+
+    # 为结果添加分区信息
+    if results:
+        from services.venue_filter import VenueFilter
+        vf = VenueFilter()
+        results = vf.enrich_results(results)
+        payload["results"] = results
 
     if notices:
         for notice in notices:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -44,6 +44,18 @@ class ResearchRequest(BaseModel):
         default=None,
         description="Override the default search backend configured via env",
     )
+    venue_tiers: list[str] | None = Field(
+        default=None,
+        description="文献分区筛选（可多选）：ccf_a, ccf_b, ccf_c, jcr_q1~q4, arxiv",
+    )
+    papers_per_task: int | None = Field(
+        default=None,
+        description="每子任务搜索文献篇数",
+    )
+    max_pdf_downloads: int | None = Field(
+        default=None,
+        description="每子任务最大 PDF 下载数量",
+    )
 
 
 class ResearchResponse(BaseModel):
@@ -74,6 +86,15 @@ def _build_config(payload: ResearchRequest) -> Configuration:
 
     if payload.search_api is not None:
         overrides["search_api"] = payload.search_api
+
+    if payload.venue_tiers:
+        overrides["venue_tiers"] = payload.venue_tiers
+
+    if payload.papers_per_task is not None:
+        overrides["papers_per_task"] = payload.papers_per_task
+
+    if payload.max_pdf_downloads is not None:
+        overrides["max_pdf_downloads"] = payload.max_pdf_downloads
 
     return Configuration.from_env(overrides=overrides)
 
@@ -158,16 +179,16 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/research/stream")
-    def stream_research(payload: ResearchRequest) -> StreamingResponse:
+    async def stream_research(payload: ResearchRequest) -> StreamingResponse:
         try:
             config = _build_config(payload)
             agent = DeepResearchAgent(config=config)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        def event_iterator() -> Iterator[str]:
+        async def event_iterator():
             try:
-                for event in agent.run_stream(payload.topic):
+                async for event in agent.run_stream_async(payload.topic):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             except Exception as exc:  # pragma: no cover - defensive guardrail
                 logger.exception("Streaming research failed")

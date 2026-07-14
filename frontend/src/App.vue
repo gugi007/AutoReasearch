@@ -18,7 +18,7 @@
             </svg>
           </div>
           <div>
-            <h1>深度研究助手</h1>
+            <h1>AutoResearch 深度研究助手</h1>
             <p>结合多轮智能检索与总结，实时呈现洞见与引用。</p>
           </div>
         </header>
@@ -41,11 +41,46 @@
                 <option value="">沿用后端配置</option>
                 <option
                   v-for="option in searchOptions"
-                  :key="option"
-                  :value="option"
+                  :key="option.value"
+                  :value="option.value"
                 >
-                  {{ option }}
+                  {{ option.label }}
                 </option>
+              </select>
+            </label>
+            <div class="field option">
+              <span>文献分区（可多选）</span>
+              <div class="checkbox-group">
+                <label
+                  v-for="tier in venueTierOptions"
+                  :key="tier.value"
+                  class="checkbox-label"
+                >
+                  <input
+                    type="checkbox"
+                    :value="tier.value"
+                    v-model="form.venueTiers"
+                  />
+                  <span>{{ tier.label }}</span>
+                </label>
+              </div>
+            </div>
+            <label class="field option">
+              <span>每任务文献篇数</span>
+              <select v-model.number="form.papersPerTask">
+                <option :value="5">5 篇</option>
+                <option :value="10">10 篇</option>
+                <option :value="15">15 篇</option>
+                <option :value="20">20 篇</option>
+              </select>
+            </label>
+            <label class="field option">
+              <span>PDF 下载数量</span>
+              <select v-model.number="form.maxPdfDownloads">
+                <option :value="0">不下载</option>
+                <option :value="3">3 篇</option>
+                <option :value="5">5 篇</option>
+                <option :value="10">10 篇</option>
               </select>
             </label>
           </section>
@@ -100,7 +135,7 @@
             </svg>
             返回
           </button>
-          <h2>🔍 深度研究助手</h2>
+          <h2>🔍 AutoResearch 深度研究助手</h2>
         </div>
 
         <div class="research-info">
@@ -111,7 +146,16 @@
 
           <div class="info-item" v-if="form.searchApi">
             <label>搜索引擎</label>
-            <p>{{ form.searchApi }}</p>
+            <p>{{ searchOptionLabel(form.searchApi) }}</p>
+          </div>
+
+          <div class="info-item" v-if="form.venueTiers.length">
+            <label>文献分区</label>
+            <div class="tier-tags">
+              <span v-for="tier in form.venueTiers" :key="tier" class="tier-tag">
+                {{ venueTierLabel(tier) }}
+              </span>
+            </div>
           </div>
 
           <div class="info-item" v-if="totalTasks > 0">
@@ -121,6 +165,13 @@
             </div>
             <p class="progress-text">{{ completedTasks }} / {{ totalTasks }} 任务完成</p>
           </div>
+        </div>
+
+        <div v-if="warnings.length" class="warnings-panel">
+          <h4>⚠ 警告提示</h4>
+          <ul>
+            <li v-for="(w, idx) in warnings" :key="idx">{{ w }}</li>
+          </ul>
         </div>
 
         <div class="sidebar-actions">
@@ -158,9 +209,9 @@
 
         <div class="timeline-wrapper" v-show="!logsCollapsed && progressLogs.length">
           <transition-group name="timeline" tag="ul" class="timeline">
-            <li v-for="(log, index) in progressLogs" :key="`${log}-${index}`">
-              <span class="timeline-node"></span>
-              <p>{{ log }}</p>
+            <li v-for="(log, index) in progressLogs" :key="index" :class="`log-${log.level}`">
+              <span class="timeline-node" :class="`node-${log.level}`"></span>
+              <p>{{ log.text }}</p>
             </li>
           </transition-group>
         </div>
@@ -378,12 +429,27 @@ interface TodoTaskView {
 
 const form = reactive({
   topic: "",
-  searchApi: ""
+  searchApi: "",
+  venueTiers: [] as string[],
+  papersPerTask: 10,
+  maxPdfDownloads: 5
 });
+
+const venueTierOptions = [
+  { value: "ccf_a", label: "CCF-A" },
+  { value: "ccf_b", label: "CCF-B" },
+  { value: "ccf_c", label: "CCF-C" },
+  { value: "jcr_q1", label: "JCR Q1" },
+  { value: "jcr_q2", label: "JCR Q2" },
+  { value: "jcr_q3", label: "JCR Q3" },
+  { value: "jcr_q4", label: "JCR Q4" },
+  { value: "arxiv", label: "arXiv" }
+];
 
 const loading = ref(false);
 const error = ref("");
-const progressLogs = ref<string[]>([]);
+const warnings = ref<string[]>([]);
+const progressLogs = ref<{ text: string; level: "info" | "warning" | "error" }[]>([]);
 const logsCollapsed = ref(false);
 const isExpanded = ref(false);
 
@@ -399,11 +465,18 @@ const toolHighlight = ref(false);
 let currentController: AbortController | null = null;
 
 const searchOptions = [
-  "advanced",
-  "duckduckgo",
-  "tavily",
-  "perplexity",
-  "searxng"
+  {
+    value: "academic",
+    label: "多源聚合（OpenAlex / Semantic Scholar / arXiv / Crossref）"
+  },
+  {
+    value: "arxiv",
+    label: "arXiv"
+  },
+  {
+    value: "google_scholar",
+    label: "Google Scholar（不稳定）"
+  }
 ];
 
 const TASK_STATUS_LABEL: Record<string, string> = {
@@ -439,6 +512,24 @@ const currentTaskNotePath = computed(() => currentTask.value?.notePath ?? "");
 const currentTaskToolCalls = computed(
   () => currentTask.value?.toolCalls ?? []
 );
+
+function venueTierLabel(tier: string): string {
+  const labels: Record<string, string> = {
+    ccf_a: "CCF-A",
+    ccf_b: "CCF-B",
+    ccf_c: "CCF-C",
+    jcr_q1: "JCR Q1",
+    jcr_q2: "JCR Q2",
+    jcr_q3: "JCR Q3",
+    jcr_q4: "JCR Q4",
+    arxiv: "arXiv"
+  };
+  return labels[tier] || tier;
+}
+
+function searchOptionLabel(value: string): string {
+  return searchOptions.find((option) => option.value === value)?.label || value;
+}
 
 const pulse = (flag: typeof summaryHighlight) => {
   flag.value = false;
@@ -623,11 +714,11 @@ async function copyNotePath(path: string | null | undefined) {
 
   try {
     await navigator.clipboard.writeText(path);
-    progressLogs.value.push(`已复制笔记路径：${path}`);
+    progressLogs.value.push({ text: `已复制笔记路径：${path}`, level: "info" });
   } catch (error) {
     console.warn("无法直接复制到剪贴板", error);
     window.prompt("复制以下笔记路径", path);
-    progressLogs.value.push("请手动复制笔记路径");
+    progressLogs.value.push({ text: "请手动复制笔记路径", level: "warning" });
   }
 }
 
@@ -636,6 +727,7 @@ function resetWorkflowState() {
   activeTaskId.value = null;
   reportMarkdown.value = "";
   progressLogs.value = [];
+  warnings.value = [];
   summaryHighlight.value = false;
   sourcesHighlight.value = false;
   reportHighlight.value = false;
@@ -681,6 +773,7 @@ const handleSubmit = async () => {
 
   loading.value = true;
   error.value = "";
+  warnings.value = [];
   isExpanded.value = true;
   resetWorkflowState();
 
@@ -689,7 +782,10 @@ const handleSubmit = async () => {
 
   const payload = {
     topic: form.topic.trim(),
-    search_api: form.searchApi || undefined
+    search_api: form.searchApi || undefined,
+    venue_tiers: form.venueTiers.length ? form.venueTiers : undefined,
+    papers_per_task: form.papersPerTask,
+    max_pdf_downloads: form.maxPdfDownloads
   };
 
   try {
@@ -701,7 +797,24 @@ const handleSubmit = async () => {
             typeof event.message === "string" && event.message.trim()
               ? event.message
               : "流程状态更新";
-          progressLogs.value.push(message);
+          progressLogs.value.push({ text: message, level: "info" });
+
+          const payload = event as Record<string, unknown>;
+          const task = findTask(payload.task_id);
+          if (task && message) {
+            task.notices.push(message);
+            applyNoteMetadata(task, payload);
+          }
+          return;
+        }
+
+        if (event.type === "warning") {
+          const message =
+            typeof event.message === "string" && event.message.trim()
+              ? event.message
+              : "研究过程中出现警告";
+          warnings.value.push(message);
+          progressLogs.value.push({ text: `⚠ ${message}`, level: "warning" });
 
           const payload = event as Record<string, unknown>;
           const task = findTask(payload.task_id);
@@ -764,9 +877,9 @@ const handleSubmit = async () => {
 
           if (todoTasks.value.length) {
             activeTaskId.value = todoTasks.value[0].id;
-            progressLogs.value.push("已生成任务清单");
+            progressLogs.value.push({ text: "已生成任务清单", level: "info" });
           } else {
-            progressLogs.value.push("未生成任务清单，使用默认任务继续");
+            progressLogs.value.push({ text: "未生成任务清单，使用默认任务继续", level: "warning" });
           }
           return;
         }
@@ -792,7 +905,7 @@ const handleSubmit = async () => {
             task.sourceItems = [];
             task.notices = [];
             activeTaskId.value = task.id;
-            progressLogs.value.push(`开始执行任务：${task.title}`);
+            progressLogs.value.push({ text: `开始执行任务：${task.title}`, level: "info" });
           } else if (status === "completed") {
             if (typeof event.summary === "string" && event.summary.trim()) {
               task.summary = event.summary.trim();
@@ -804,13 +917,13 @@ const handleSubmit = async () => {
               task.sourcesSummary = event.sources_summary.trim();
               task.sourceItems = parseSources(task.sourcesSummary);
             }
-            progressLogs.value.push(`完成任务：${task.title}`);
+            progressLogs.value.push({ text: `完成任务：${task.title}`, level: "info" });
             if (activeTaskId.value === task.id) {
               pulse(summaryHighlight);
               pulse(sourcesHighlight);
             }
           } else if (status === "skipped") {
-            progressLogs.value.push(`任务跳过：${task.title}`);
+            progressLogs.value.push({ text: `任务跳过：${task.title}`, level: "warning" });
           }
           return;
         }
@@ -837,13 +950,11 @@ const handleSubmit = async () => {
             if (activeTaskId.value === task.id) {
               pulse(sourcesHighlight);
             }
-            progressLogs.value.push(`已更新任务来源：${task.title}`);
+            progressLogs.value.push({ text: `已更新任务来源：${task.title}`, level: "info" });
           }
 
           if (typeof payload.backend === "string") {
-            progressLogs.value.push(
-              `当前使用搜索后端：${payload.backend}`
-            );
+            progressLogs.value.push({ text: `当前使用搜索后端：${payload.backend}`, level: "info" });
           }
 
           applyNoteMetadata(task, payload);
@@ -908,12 +1019,12 @@ const handleSubmit = async () => {
             const logSummary = noteId
               ? `${agent} 调用了 ${tool}（任务 ${task.id}，笔记 ${noteId}）`
               : `${agent} 调用了 ${tool}（任务 ${task.id}）`;
-            progressLogs.value.push(logSummary);
+            progressLogs.value.push({ text: logSummary, level: "info" });
             if (activeTaskId.value === task.id) {
               pulse(toolHighlight);
             }
           } else {
-            progressLogs.value.push(`${agent} 调用了 ${tool}`);
+            progressLogs.value.push({ text: `${agent} 调用了 ${tool}`, level: "info" });
           }
           return;
         }
@@ -925,7 +1036,7 @@ const handleSubmit = async () => {
               : "";
           reportMarkdown.value = report || "报告生成失败，未获得有效内容";
           pulse(reportHighlight);
-          progressLogs.value.push("最终报告已生成");
+          progressLogs.value.push({ text: "最终报告已生成", level: "info" });
           return;
         }
 
@@ -935,7 +1046,7 @@ const handleSubmit = async () => {
               ? event.detail
               : "研究过程中发生错误";
           error.value = detail;
-          progressLogs.value.push("研究失败，已停止流程");
+          progressLogs.value.push({ text: "研究失败，已停止流程", level: "error" });
         }
       },
       { signal: controller.signal }
@@ -946,7 +1057,7 @@ const handleSubmit = async () => {
     }
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
-      progressLogs.value.push("已取消当前研究任务");
+      progressLogs.value.push({ text: "已取消当前研究任务", level: "warning" });
     } else {
       error.value = err instanceof Error ? err.message : "请求失败";
     }
@@ -962,7 +1073,7 @@ const cancelResearch = () => {
   if (!loading.value || !currentController) {
     return;
   }
-  progressLogs.value.push("正在尝试取消当前研究任务…");
+  progressLogs.value.push({ text: "正在尝试取消当前研究任务…", level: "info" });
   currentController.abort();
 };
 
@@ -981,6 +1092,7 @@ const startNewResearch = () => {
   isExpanded.value = false;
   form.topic = "";
   form.searchApi = "";
+  form.venueTiers = [];
 };
 
 onBeforeUnmount(() => {
@@ -1210,6 +1322,64 @@ select:focus {
   min-width: 140px;
 }
 
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  color: #475569;
+}
+
+.checkbox-label:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.checkbox-label:has(input:checked) {
+  border-color: #2563eb;
+  background: rgba(59, 130, 246, 0.1);
+  color: #1e40af;
+  font-weight: 500;
+}
+
+.tier-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tier-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #1e40af;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .form-actions {
   display: flex;
   align-items: center;
@@ -1420,6 +1590,25 @@ select:focus {
   border-radius: 999px;
   background: linear-gradient(135deg, #38bdf8, #7c3aed);
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.22);
+}
+
+.node-warning {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22);
+}
+
+.node-error {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.22);
+}
+
+.log-warning p {
+  color: #b45309;
+}
+
+.log-error p {
+  color: #b91c1c;
+  font-weight: 500;
 }
 
 .timeline-enter-active,
@@ -2240,6 +2429,42 @@ select:focus {
   gap: 12px;
   padding-top: 16px;
   border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.warnings-panel {
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.warnings-panel h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+.warnings-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.warnings-panel li {
+  font-size: 13px;
+  color: #b45309;
+  line-height: 1.5;
+  padding: 8px 12px;
+  background: rgba(251, 191, 36, 0.15);
+  border-radius: 8px;
+  border-left: 3px solid #f59e0b;
 }
 
 .new-research-btn {

@@ -21,6 +21,13 @@ dependencies = [
     "scholarly>=1.7.0",
     "pyzotero>=1.5.0",
     "mcp>=1.0.0",
+    "langgraph>=0.4.0",
+    "langchain-core>=0.3.0",
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.2.0",
+    "camel-ai>=0.2.0",
+    "arxiv>=2.1.0",
+    "pymupdf>=1.24.0",
 ]
 
 [project.optional-dependencies]

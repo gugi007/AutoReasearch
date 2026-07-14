@@ -6,12 +6,14 @@ from pydantic import BaseModel, Field
 
 
 class SearchAPI(Enum):
+    ACADEMIC = "academic"
+    GOOGLE_SCHOLAR = "google_scholar"
+    ARXIV = "arxiv"
     PERPLEXITY = "perplexity"
     TAVILY = "tavily"
     DUCKDUCKGO = "duckduckgo"
     SEARXNG = "searxng"
     ADVANCED = "advanced"
-    GOOGLE_SCHOLAR = "google_scholar"
 
 
 class Configuration(BaseModel):
@@ -33,9 +35,14 @@ class Configuration(BaseModel):
         description="Provider identifier (ollama, lmstudio, or custom)",
     )
     search_api: SearchAPI = Field(
-        default=SearchAPI.DUCKDUCKGO,
+        default=SearchAPI.ACADEMIC,
         title="Search API",
         description="Web search API to use",
+    )
+    venue_tiers: list[str] = Field(
+        default_factory=list,
+        title="Venue Tier Filter",
+        description="文献分区筛选（可多选）：ccf_a, ccf_b, ccf_c, jcr_q1~q4, arxiv，空列表表示不限",
     )
     enable_notes: bool = Field(
         default=True,
@@ -107,6 +114,46 @@ class Configuration(BaseModel):
         title="Zotero Library Type",
         description="Zotero library type (user or group)",
     )
+    enable_rag: bool = Field(
+        default=True,
+        title="Enable RAG",
+        description="Whether to use RAG vector retrieval to augment context",
+    )
+    rag_collection_name: str = Field(
+        default="deep_research",
+        title="RAG Collection Name",
+        description="ChromaDB collection name for vector storage",
+    )
+    enable_camel_review: bool = Field(
+        default=False,
+        title="Enable CAMEL Review",
+        description="Whether to use CAMEL Researcher-Reviewer dialogue for quality review",
+    )
+    camel_max_review_rounds: int = Field(
+        default=3,
+        title="CAMEL Max Review Rounds",
+        description="Maximum number of Researcher-Reviewer dialogue rounds",
+    )
+    pdf_dir: str = Field(
+        default="",
+        title="PDF Directory",
+        description="Directory to store downloaded PDF files",
+    )
+    papers_per_task: int = Field(
+        default=10,
+        title="Papers Per Task",
+        description="Number of papers to search per sub-task",
+    )
+    max_pdf_downloads: int = Field(
+        default=5,
+        title="Max PDF Downloads",
+        description="Maximum number of PDFs to download per sub-task",
+    )
+    enable_pdf_download: bool = Field(
+        default=True,
+        title="Enable PDF Download",
+        description="Whether to automatically download PDF files",
+    )
 
     @classmethod
     def from_env(cls, overrides: Optional[dict[str, Any]] = None) -> "Configuration":
@@ -140,6 +187,15 @@ class Configuration(BaseModel):
             "zotero_library_id": os.getenv("ZOTERO_LIBRARY_ID"),
             "zotero_api_key": os.getenv("ZOTERO_API_KEY"),
             "zotero_library_type": os.getenv("ZOTERO_LIBRARY_TYPE"),
+            "enable_rag": os.getenv("ENABLE_RAG"),
+            "rag_collection_name": os.getenv("RAG_COLLECTION_NAME"),
+            "enable_camel_review": os.getenv("ENABLE_CAMEL_REVIEW"),
+            "camel_max_review_rounds": os.getenv("CAMEL_MAX_REVIEW_ROUNDS"),
+            "venue_tiers": os.getenv("VENUE_TIERS"),
+            "pdf_dir": os.getenv("PDF_DIR"),
+            "papers_per_task": os.getenv("PAPERS_PER_TASK"),
+            "max_pdf_downloads": os.getenv("MAX_PDF_DOWNLOADS"),
+            "enable_pdf_download": os.getenv("ENABLE_PDF_DOWNLOAD"),
         }
 
         for key, value in env_aliases.items():
@@ -150,6 +206,30 @@ class Configuration(BaseModel):
             for key, value in overrides.items():
                 if value is not None:
                     raw_values[key] = value
+
+        # 处理 venue_tiers：逗号分隔的字符串转为列表
+        if "venue_tiers" in raw_values:
+            vt = raw_values["venue_tiers"]
+            if isinstance(vt, str):
+                raw_values["venue_tiers"] = [t.strip() for t in vt.split(",") if t.strip()]
+
+        # 处理整数类型的环境变量
+        int_fields = ["papers_per_task", "max_pdf_downloads", "max_web_research_loops",
+                       "camel_max_review_rounds"]
+        for field in int_fields:
+            if field in raw_values and isinstance(raw_values[field], str):
+                try:
+                    raw_values[field] = int(raw_values[field])
+                except ValueError:
+                    pass
+
+        # 处理布尔类型的环境变量
+        bool_fields = ["enable_pdf_download", "enable_zotero", "enable_rag",
+                       "enable_notes", "enable_camel_review", "fetch_full_page",
+                       "strip_thinking_tokens", "use_tool_calling"]
+        for field in bool_fields:
+            if field in raw_values and isinstance(raw_values[field], str):
+                raw_values[field] = raw_values[field].lower() in ("true", "1", "yes")
 
         return cls(**raw_values)
 
