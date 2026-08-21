@@ -20,6 +20,7 @@ class ReportingService:
         self._model = model
         self._config = config
 
+    # 生成最终研究报告
     def generate_report(self, state: SummaryState) -> str:
         """Generate a structured report based on completed tasks."""
 
@@ -35,7 +36,7 @@ class ReportingService:
                 f"- 任务总结：\n{summary_block}\n"
                 f"- 来源概览：\n{sources_block}\n"
             )
-
+        
         note_references = []
         for task in state.todo_items:
             if task.note_id:

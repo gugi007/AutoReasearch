@@ -302,7 +302,7 @@ def _persist_report(
 # Nodes
 # ---------------------------------------------------------------------------
 
-
+#调用planning service 返回todo-items
 async def planner_node(
     state: ResearchState,
     *,
@@ -310,13 +310,15 @@ async def planner_node(
 ) -> dict[str, Any]:
     """Plan TODO items from the research topic."""
     services = _Services(app_config)
+    #调用planning services的规划方法
     temp_state = SummaryState(research_topic=state["research_topic"])
-
+    #将同步方法丢到线程池，等待返回结果
     todo_items = await asyncio.to_thread(services.planner.plan_todo_list, temp_state)
+    #兜底，如果没有生成todo-items，创建一个默认任务
     if not todo_items:
         logger.info("No TODO items generated; falling back to single task")
         todo_items = [services.planner.create_fallback_task(temp_state)]
-
+    #为每个任务添加一个stream_token，用于在stream_events中标识每个任务
     for index, task in enumerate(todo_items, start=1):
         task.stream_token = f"task_{task.id}"
 
@@ -333,23 +335,28 @@ async def planner_node(
         ],
     }
 
-
+#任务分发，将TODO拆分成n个send并行分发
 def fan_out_tasks(state: ResearchState) -> list[Send]:
     """Conditional edge: create a Send for each TODO item."""
     return [
         Send(
+            #目标节点名
             "task_pipeline",
             {
+                #传给每个节点的输入参数
                 "research_topic": state["research_topic"],
                 "run_id": state["run_id"],
                 "task": task,
+                #每个send装不同的task
                 "todo_items": state["todo_items"],
             },
         )
+        #遍历每个todo项，创建一个send，每个send装不同的task
         for task in state["todo_items"]
     ]
 
-
+#这是多个任务的todo-task，每个任务都包含核心流水线
+#每个任务的流水线包括搜索、摘要、下载PDF、合并PDF、
 async def task_pipeline_node(
     state: TaskPipelineInput,
     *,
@@ -363,6 +370,7 @@ async def task_pipeline_node(
 
     try:
         # -- in_progress --
+        #把任务状态改成“进行中”，并推送一条sse事件通知前端
         task.status = "in_progress"
         events.append(_task_status_event(task, "in_progress"))
 
@@ -527,7 +535,7 @@ async def task_pipeline_node(
             "stream_events": _stamp_events(events, run_id),
         }
 
-
+#总结的node，负责生成最终报告和持久化报告笔记
 async def synthesizer_node(
     state: ResearchState,
     *,

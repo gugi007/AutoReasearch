@@ -40,6 +40,8 @@ class SummarizationService:
         text = response.choices[0].message.content or ""
 
         summary_text = text.strip()
+        # 移除思考令牌，避免在摘要中包含思考过程
+        # 这可以提高摘要的质量和可读性
         if self._config.strip_thinking_tokens:
             summary_text = strip_thinking_tokens(summary_text)
 
@@ -57,7 +59,8 @@ class SummarizationService:
         raw_buffer = ""
         visible_output = ""
         emit_index = 0
-
+        # 清除缓冲区中的思考令牌，只保留可见文本
+        # 这可以确保摘要中不包含思考过程，只包含任务相关的信息
         def flush_visible() -> Iterator[str]:
             nonlocal emit_index, raw_buffer
             while True:
@@ -81,7 +84,10 @@ class SummarizationService:
                     break
                 emit_index = end + len("</think>")
 
+        # 流式生成摘要文本
         def generator() -> Iterator[str]:
+            #这三个变量用外层的，不自己造新的
+            #generator / flush_visible / get_summary
             nonlocal raw_buffer, visible_output, emit_index
             stream = self._client.chat.completions.create(
                 model=self._model,
@@ -89,7 +95,10 @@ class SummarizationService:
                 temperature=0.0,
                 stream=True,
             )
+            # 遍历流式响应，处理每个小片段
+            # 每个小片段可能包含思考令牌，需要清除并只保留可见文本
             for chunk in stream:
+                #chunk是LLM吐出来的一个小片段
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
                     raw_buffer += delta.content
@@ -108,7 +117,7 @@ class SummarizationService:
                     visible_output += segment
                     if segment:
                         yield segment
-
+        # 获取最终摘要文本
         def get_summary() -> str:
             if remove_thinking:
                 cleaned = strip_thinking_tokens(visible_output)
@@ -118,6 +127,9 @@ class SummarizationService:
 
         return generator(), get_summary
 
+    #由于每个任务都不一样，如果放在prompt中需要传入的参数太多
+    # 所以这里将任务信息和上下文作为参数，构建一个通用的提示模板
+    #f-string直接拼接，更直观，更易维护
     def _build_messages(
         self, state: SummaryState, task: TodoItem, context: str
     ) -> list[dict[str, str]]:

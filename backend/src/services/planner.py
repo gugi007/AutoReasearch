@@ -32,12 +32,12 @@ class PlanningService:
 
     def plan_todo_list(self, state: SummaryState) -> list[TodoItem]:
         """Ask the LLM to break the topic into actionable tasks."""
-
+        # 格式化提示，包含当前日期和研究主题
         prompt = todo_planner_instructions.format(
             current_date=get_current_date(),
             research_topic=state.research_topic,
         )
-
+        # 调用 LLM 模型，生成任务列表
         response = self._client.chat.completions.create(
             model=self._model,
             messages=[
@@ -53,6 +53,7 @@ class PlanningService:
         tasks_payload = self._extract_tasks(text)
         todo_items: list[TodoItem] = []
 
+        # 解析任务列表，将每个任务转换为 TodoItem 对象
         for idx, item in enumerate(tasks_payload, start=1):
             title = str(item.get("title") or f"任务{idx}").strip()
             intent = str(item.get("intent") or "聚焦主题的关键问题").strip()
@@ -75,6 +76,7 @@ class PlanningService:
         logger.info("Planner produced %d tasks: %s", len(todo_items), titles)
         return todo_items
 
+    #降级兜底方案，当任务规划失败时，创建一个基础背景梳理任务
     @staticmethod
     def create_fallback_task(state: SummaryState) -> TodoItem:
         """Create a minimal fallback task when planning failed."""
@@ -88,7 +90,7 @@ class PlanningService:
     # ------------------------------------------------------------------
     # Parsing helpers
     # ------------------------------------------------------------------
-
+    # 解析任务列表，将每个任务转换为 TodoItem 对象
     def _extract_tasks(self, raw_response: str) -> list[dict[str, Any]]:
         """Parse planner output into a list of task dictionaries."""
         text = raw_response.strip()
@@ -139,7 +141,7 @@ class PlanningService:
                 return None
 
         return None
-
+    # 解析工具调用表达式，提取任务列表，提供冗余解析方式
     def _extract_tool_payload(self, text: str) -> dict[str, Any] | None:
         """Parse the first TOOL_CALL expression in the output."""
         match = TOOL_CALL_PATTERN.search(text)

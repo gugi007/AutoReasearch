@@ -1,5 +1,5 @@
 """State definitions for the LangGraph research workflow."""
-
+#
 from __future__ import annotations
 
 import operator
@@ -12,6 +12,9 @@ from models import TodoItem
 
 class ResearchState(TypedDict, total=False):
     """Main graph state with reducers for parallel accumulation."""
+    #整个工作流共享一个字段，但是有两种不同的状态
+    #一个只读共享字段 research_topic run_id等是只读共享的，不能被修改
+    #一个可写共享字段 todo_items completed_tasks等是可写共享的，可以被修改
 
     research_topic: str
     run_id: str
